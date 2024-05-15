@@ -83,3 +83,60 @@ exports.deactiveMe = catchAsync(async (req, res, next) => {
   });
   // next();
 });
+
+exports.reactivateMe = catchAsync(async (req, res, next) => {
+  await User.findByIdAndUpdate(req.user.id, { active: true });
+
+  res.status(200).json({
+    status: 'success',
+    message: 'User reactivated successfully',
+    data: null,
+  });
+});
+
+const filterObj = (obj, ...allowedFields) => {
+  const newObj = {};
+  Object.keys(obj).forEach((el) => {
+    if (allowedFields.includes(el)) newObj[el] = obj[el];
+  });
+  return newObj;
+};
+
+// Get currently logged in user
+
+exports.getMe = (req, res, next) => {
+  req.params.id = req.user.id;
+  next();
+};
+
+exports.updateMe = catchAsync(async (req, res, next) => {
+  // 1) create error if user POST password data
+
+  if (req.body.password || req.body.passwordConfirm) {
+    return next(
+      new AppError(
+        'This route is not for password update . please use /updatePassword',
+        400
+      )
+    );
+  }
+
+  // 2) Filtered out unwanted feilds names that are not allowed to update
+
+  const filteredBody = filterObj(req.body, 'fullName', 'email');
+
+  // 3) Update user document
+
+  const updateUser = await User.findByIdAndUpdate(req.user.id, filteredBody, {
+    new: true,
+    runValidators: true,
+  });
+
+  res.status(200).json({
+    status: 'success',
+    message: ' Your Profile is Updated Successfully',
+    data: {
+      user: updateUser,
+    },
+  });
+});

@@ -115,3 +115,33 @@ exports.deleteFood = catchAsync(async (req, res, next) => {
     data: null,
   });
 });
+
+exports.requestFood = catchAsync(async (req, res, next) => {
+  const { foodId, quantity, name } = req.body;
+  const { ngoId } = req.user; // Assuming you have NGO information in req.user
+
+  // Check if the NGO is authorized to request food (you can implement your own authorization logic)
+  if (!ngoId) {
+    return next(new AppError('Unauthorized to request food', 403));
+  }
+
+  // Check if the requested food item exists and is available
+  const foodItem = await Food.findById(foodId);
+
+  if (!foodItem || foodItem.name || foodItem.quantity < quantity) {
+    return next(new AppError('Requested food item not available', 400));
+  }
+
+  // Reserve the requested quantity of food for the NGO by updating the recipient field
+  foodItem.recipient = ngoId;
+  await foodItem.save();
+
+  // Send response indicating successful request
+  res.status(200).json({
+    status: 'success',
+    message: 'Food requested successfully',
+    data: {
+      foodItem,
+    },
+  });
+});

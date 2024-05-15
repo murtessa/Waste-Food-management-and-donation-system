@@ -80,7 +80,20 @@ exports.login = catchAsync(async (req, res, next) => {
   createAndSendToken(user, 200, res);
 });
 
+// authController.js
+
 exports.protect = catchAsync(async (req, res, next) => {
+  // Check if the request is for the reactivateMe route
+  if (
+    req.originalUrl === 'http://localhost:5000/api/donate/user/reactivateMe' &&
+    req.method === 'PATCH'
+  ) {
+    // Grant access for reactivation requests without checking for token validity
+    return next();
+  }
+
+  // Continue with the token verification for other routes
+
   // 1) Getting token and check if it is there
   let token;
 
@@ -90,33 +103,33 @@ exports.protect = catchAsync(async (req, res, next) => {
   ) {
     token = req.headers.authorization.split(' ')[1];
   }
-  // console.log(token);
 
   if (!token) {
     return next(
-      new AppError('You are not logged in ! please login to get access', 401)
+      new AppError('You are not logged in! Please log in to get access', 401)
     );
   }
-  // 2) verification token
 
+  // 2) Verification token
   const decoded = await promisify(jwt.verify)(token, process.env.JWT_SECRET);
 
-  // 3) check if user is still exist
+  // 3) Check if user is still exist
   const currentUser = await User.findById(decoded.id);
+
   if (!currentUser) {
     return next(
-      new AppError('the token belonging to this user does not exist', 401)
+      new AppError('The token belonging to this user does not exist', 401)
     );
   }
-  // 4) check if user changed password after JWT the token be issued
 
+  // 4) Check if user changed password after JWT the token be issued
   if (currentUser.changePasswordAfter(decoded.iat)) {
     return next(
-      new AppError('user recently changed password. Please login again', 401)
+      new AppError('User recently changed password. Please login again', 401)
     );
   }
 
-  // GRANT ASSECC TO PROTECTED
+  // Grant access to protected routes
   req.user = currentUser;
   next();
 });

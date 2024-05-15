@@ -32,6 +32,8 @@ router.get(
   FoodController.getDonationHistory
 );
 
+router.post('/foodRequest', authController.protect, FoodController.requestFood);
+
 router.get('/', FoodController.getAllFoods);
 router.get('/:id', FoodController.getFoodById);
 router.patch('/:id', FoodController.updateFood);
