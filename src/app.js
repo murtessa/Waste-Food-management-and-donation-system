@@ -8,9 +8,11 @@ const session = require('express-session');
 const passport = require('passport');
 const OAuth2Strategy = require('passport-google-oauth2').Strategy;
 const User = require('./Models/userModel');
-const clientid =
-  '790376637860-50fqhka8p9cks9glg1trtqn7vf4utu6l.apps.googleusercontent.com';
-const clientsecret = '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';
+const dotenv = require('dotenv');
+
+dotenv.config({ path: './config.env' });
+const clientid = process.env.GOOGLE_OAUTH_CLIENT_ID;
+const clientsecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
 
 const app = express();
 
