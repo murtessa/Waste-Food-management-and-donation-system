@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const mongoose = require('mongoose');
 const validator = require('validator');
 const bcrypt = require('bcrypt');
+const Message = require('./Message');
 const userSchema = new mongoose.Schema(
   {
     fullName: {
@@ -32,6 +33,13 @@ const userSchema = new mongoose.Schema(
         message: 'please your password is not the same ... ',
       },
     },
+
+    googleId: {
+      type: String,
+    },
+    displayName: {
+      type: String,
+    },
     phone: {
       type: String,
       required: true,
@@ -51,7 +59,6 @@ const userSchema = new mongoose.Schema(
     active: {
       type: Boolean,
       default: true,
-      select: false,
     },
     passwordChangedAt: Date,
     passwordResetToken: String,
@@ -62,8 +69,46 @@ const userSchema = new mongoose.Schema(
     organizationName: { type: String }, // for donors, qualityControl, and analytics roles
     foodPreferences: [{ type: String }], // for recipient role
   },
-  { timestamps: true }
+  { timestamps: true },
+
+  {
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true },
+  }
 );
+
+userSchema.methods.sendMessage = async function (
+  recipientId,
+  senderId,
+  messageContent
+) {
+  try {
+    // Create a new message instance
+    const message = new Message({
+      sender: senderId,
+      recipient: recipientId,
+      content: messageContent,
+    });
+
+    // Save the message
+    await message.save();
+
+    // Handle additional logic here, such as updating user's message history, etc.
+
+    return true; // Return true if message sending is successful
+  } catch (error) {
+    console.error('Error sending message:', error);
+    throw new Error('Failed to send message');
+  }
+};
+userSchema.methods.toJSON = function () {
+  const obj = this.toObject();
+  delete obj.password;
+  delete obj.__v;
+  delete obj.createdAt;
+  delete obj.updatedAt;
+  return obj;
+};
 
 userSchema.pre('save', async function (next) {
   // Only run this function if the password id modified
@@ -84,11 +129,18 @@ userSchema.pre('save', function (next) {
 });
 
 userSchema.pre(/^find/, function (next) {
-  // this poins to the current query
-
-  this.find({ active: { $ne: false } });
+  if (this.getQuery().active === undefined) {
+    this.find({}); // No filter, include all users
+  }
   next();
 });
+
+// userSchema.pre(/^find/, function (next) {
+//   // this poins to the current query
+
+//   this.find({ active: { $ne: false } });
+//   next();
+// });
 
 userSchema.methods.correctPassword = async function (
   candidatePassword,

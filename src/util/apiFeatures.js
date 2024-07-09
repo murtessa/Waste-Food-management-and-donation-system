@@ -4,6 +4,27 @@ class APIFeatures {
     this.queryString = queryString;
   }
 
+  multfilter() {
+    const searchQuery = (this.queryString.q || '').toLowerCase();
+
+    console.log('Search Query:', searchQuery); // Log the search query
+
+    if (typeof searchQuery === 'string' && searchQuery.length > 0) {
+      const regexSearch = {
+        $or: [
+          { name: { $regex: searchQuery, $options: 'i' } },
+          { category: { $regex: searchQuery, $options: 'i' } },
+          { status: { $regex: searchQuery, $options: 'i' } },
+        ],
+      };
+
+      this.query = this.query.find(regexSearch);
+    }
+
+    // console.log('Query after applying regex search:', this.query); // Log the query
+    return this;
+  }
+
   filter() {
     const qeuryObj = { ...this.queryString };
     const excludeFields = ['pages', 'sort', 'limit', 'fields'];

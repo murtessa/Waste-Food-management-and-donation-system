@@ -40,7 +40,13 @@ router.get(
   UserController.getUserById
 );
 
-router.patch('/updateMe', authController.protect, UserController.updateMe);
+router.patch(
+  '/updateMe',
+
+  authController.protect,
+  upload.single('userPhoto'),
+  UserController.updateMe
+);
 
 router.patch(
   '/updateMyPassword',
@@ -61,5 +67,21 @@ router.get('/', UserController.getAllUsers);
 router.get('/:id', UserController.getUserById);
 router.patch('/:id', UserController.updateUser);
 router.delete('/:id', UserController.deleteUserById);
+
+// Disable user
+router.patch(
+  '/disable/:id',
+  authController.protect,
+  authController.restrictTo('admin'),
+  UserController.disableUser
+);
+
+// Enable user
+router.patch(
+  '/enable/:id',
+  authController.protect,
+  authController.restrictTo('admin'),
+  UserController.enableUser
+);
 
 module.exports = router;

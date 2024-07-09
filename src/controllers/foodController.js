@@ -1,4 +1,5 @@
 const Food = require('./../Models/foodModel');
+const User = require('./../Models/userModel.js');
 const AppError = require('./../util/appError');
 const catchAsync = require('./../util/catchError');
 const APIFeatures = require('./../util/apiFeatures.js');
@@ -40,33 +41,207 @@ exports.createFood = catchAsync(async (req, res, next) => {
 
 exports.getAllFoods = catchAsync(async (req, res, next) => {
   //EXECUTE QUERY
-  const features = new APIFeatures(Food.find(), req.query)
-    .filter()
-    .sort()
-    .limitFields()
-    .pagination();
-  const foods = await features.query;
+  try {
+    const features = new APIFeatures(Food.find(), req.query).multfilter();
 
-  // RESPONSE
-  res.status(200).json({
-    status: 'success',
-    results: foods.length,
-    data: {
-      foods,
-    },
-  });
+    const foods = await features.query.populate({
+      path: 'recipient',
+      select: 'fullName',
+    });
+
+    res.status(200).json({
+      status: 'success',
+      results: foods.length,
+      data: {
+        foods,
+      },
+    });
+  } catch (err) {
+    console.error('Error fetching foods:', err);
+    res.status(500).json({
+      status: 'error',
+      message: 'Internal server error',
+    });
+  }
 });
 
+exports.getAllAdminFoods = catchAsync(async (req, res, next) => {
+  try {
+    const features = new APIFeatures(Food.find(), req.query).multfilter();
+    const foods = await features.query.populate([
+      {
+        path: 'recipient',
+        select: 'fullName email',
+      },
+      {
+        path: 'donor',
+        select: 'fullName email',
+      },
+    ]);
+
+    // Transform the data to set default value for null recipient
+    const transformedFoods = foods.map((food) => ({
+      ...food.toObject(),
+      recipient: food.recipient
+        ? {
+            fullName: food.recipient.fullName,
+            email: food.recipient.email,
+          }
+        : 'not requested',
+    }));
+
+    res.status(200).json({
+      status: 'success',
+      results: transformedFoods.length,
+      data: {
+        foods: transformedFoods,
+      },
+    });
+  } catch (err) {
+    console.error('Error fetching foods:', err);
+    res.status(500).json({
+      status: 'error',
+      message: 'Internal server error',
+    });
+  }
+});
 exports.getDonationHistory = catchAsync(async (req, res, next) => {
   try {
     const userId = req.user.id; // Assuming user ID is available in req.user
-    const donationHistory = await Food.find({ donor: userId }).populate(
-      'donor'
-    ); // Assuming 'donor' field references the User model
-    res.status(200).json({ donationHistory });
+
+    // Initialize API features for filtering and searching
+    const features = new APIFeatures(
+      Food.find({ donor: userId }),
+      req.query
+    ).multfilter();
+
+    const donationHistory = await features.query.populate({
+      path: 'donor',
+      select: 'fullName email phone address, userPhoto',
+    });
+
+    res.status(200).json({
+      status: 'success',
+      data: {
+        donationHistory,
+      },
+    });
   } catch (error) {
     console.error('Error fetching donation history:', error);
     res.status(500).json({ error: 'Failed to fetch donation history' });
+  }
+});
+
+exports.requestFood = catchAsync(async (req, res, next) => {
+  try {
+    const { id } = req.params; // Donation ID
+    const ngoId = req.user.id; // Assuming NGO's ObjectId is stored in req.user.id
+
+    const foodItem = await Food.findById(id);
+
+    if (!foodItem) {
+      return res.status(404).json({
+        status: 'fail',
+        message: 'Food donation not found',
+      });
+    }
+
+    if (foodItem.recipient) {
+      return res.status(400).json({
+        status: 'fail',
+        message: 'Food item already requested',
+      });
+    }
+
+    if (foodItem.status === 'Approved') {
+      return res.status(400).json({
+        status: 'fail',
+        message: 'Food item already approved',
+      });
+    }
+
+    // If food status is pending, change it to requested
+    if (foodItem.status === 'Pending') {
+      foodItem.status = 'Requested';
+      foodItem.recipient = ngoId;
+      await foodItem.save();
+    }
+
+    // Fetch updated list of available donations
+    const availableDonations = await Food.find({ recipient: null });
+
+    res.status(200).json({
+      status: 'success',
+      data: {
+        availableDonations,
+      },
+    });
+  } catch (error) {
+    console.error('Error requesting or approving food donation:', error);
+    res.status(400).json({
+      status: 'fail',
+      message: 'Failed to request or approve food donation',
+    });
+  }
+});
+
+exports.approveFood = catchAsync(async (req, res, next) => {
+  try {
+    const { id } = req.params; // Donation ID
+
+    const foodItem = await Food.findById(id).populate('recipient'); // Populate recipient for sending message
+
+    if (!foodItem) {
+      return res.status(404).json({
+        status: 'fail',
+        message: 'Food donation not found',
+      });
+    }
+
+    if (foodItem.status !== 'Requested') {
+      return res.status(400).json({
+        status: 'fail',
+        message:
+          'Food item cannot be approved as it is not in requested status',
+      });
+    }
+
+    // Update food status to 'Approved'
+    foodItem.status = 'Approved';
+    await foodItem.save();
+
+    // Send message to the NGO
+    const ngoUser = foodItem.recipient; // Assuming recipient is a User object
+    const adminUser = req.user; // Assuming admin's user object is in req.user after authentication
+
+    if (!ngoUser) {
+      return res.status(404).json({
+        status: 'fail',
+        message: 'Recipient NGO not found',
+      });
+    }
+
+    // Example message format, customize as needed
+    const messageContent = `Your request for food donation "${foodItem.name}" has been approved by admin.`;
+
+    // Assuming you have a method in your User model to handle sending messages
+    await adminUser.sendMessage(ngoUser._id, adminUser._id, messageContent);
+
+    // Fetch updated list of available donations
+    const availableDonations = await Food.find({ recipient: null });
+
+    res.status(200).json({
+      status: 'success',
+      data: {
+        availableDonations,
+      },
+    });
+  } catch (error) {
+    console.error('Error approving food donation:', error);
+    res.status(400).json({
+      status: 'fail',
+      message: 'Failed to approve food donation',
+    });
   }
 });
 
@@ -86,10 +261,20 @@ exports.getFoodById = catchAsync(async (req, res, next) => {
 });
 
 exports.updateFood = catchAsync(async (req, res, next) => {
-  const updatedFood = await Food.findByIdAndUpdate(req.params.id, req.body, {
-    new: true,
-    runValidators: true,
-  });
+  const updatedFields = req.body;
+
+  if (req.file) {
+    updatedFields.foodImage = req.file.filename; // Assuming you are using Multer for file uploads
+  }
+
+  const updatedFood = await Food.findByIdAndUpdate(
+    req.params.id,
+    updatedFields,
+    {
+      new: true,
+      runValidators: true,
+    }
+  );
 
   if (!updatedFood) {
     return next(new AppError('Food with this ID is not found', 404));
@@ -98,7 +283,7 @@ exports.updateFood = catchAsync(async (req, res, next) => {
   res.status(200).json({
     status: 'success',
     data: {
-      updatedFood,
+      food: updatedFood,
     },
   });
 });
@@ -116,32 +301,36 @@ exports.deleteFood = catchAsync(async (req, res, next) => {
   });
 });
 
-exports.requestFood = catchAsync(async (req, res, next) => {
-  const { foodId, quantity, name } = req.body;
-  const { ngoId } = req.user; // Assuming you have NGO information in req.user
+exports.getStats = catchAsync(async (req, res, next) => {
+  try {
+    const totalUsers = await User.countDocuments();
+    const totalDonors = await User.countDocuments({ role: 'donor' });
+    const totalNGOs = await User.countDocuments({ role: 'NGO' });
+    const totalDeliveries = await User.countDocuments({ role: 'delivery' });
+    const totalAdmins = await User.countDocuments({ role: 'admin' });
 
-  // Check if the NGO is authorized to request food (you can implement your own authorization logic)
-  if (!ngoId) {
-    return next(new AppError('Unauthorized to request food', 403));
+    const totalDonations = await Food.countDocuments();
+    const pendingDonations = await Food.countDocuments({ status: 'Pending' });
+    const requestedDonations = await Food.countDocuments({
+      status: 'Requested',
+    });
+    const approvedDonations = await Food.countDocuments({ status: 'Approved' });
+
+    const stats = {
+      totalUsers,
+      totalDonors,
+      totalNGOs,
+      totalDeliveries,
+      totalAdmins,
+      totalDonations,
+      pendingDonations,
+      requestedDonations,
+      approvedDonations,
+    };
+
+    res.status(200).json({ stats });
+  } catch (err) {
+    console.error('Error fetching stats:', err);
+    next(new AppError('Failed to fetch stats', 500));
   }
-
-  // Check if the requested food item exists and is available
-  const foodItem = await Food.findById(foodId);
-
-  if (!foodItem || foodItem.name || foodItem.quantity < quantity) {
-    return next(new AppError('Requested food item not available', 400));
-  }
-
-  // Reserve the requested quantity of food for the NGO by updating the recipient field
-  foodItem.recipient = ngoId;
-  await foodItem.save();
-
-  // Send response indicating successful request
-  res.status(200).json({
-    status: 'success',
-    message: 'Food requested successfully',
-    data: {
-      foodItem,
-    },
-  });
 });

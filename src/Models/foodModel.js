@@ -44,7 +44,7 @@ const foodSchema = new mongoose.Schema(
 
     status: {
       type: String,
-      enum: ['Approved', 'Pending', 'Rejected'],
+      enum: ['Approved', 'Pending', 'Requested', 'Rejected'],
       default: 'Pending',
     },
     // Add other fields as needed
